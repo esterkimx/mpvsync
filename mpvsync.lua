@@ -1,25 +1,19 @@
 --[[
-The MIT License (MIT)
+Copyright (C) 2017  Maksim Esterkin
 
-Copyright (c) 2017 Maksim Esterkin
+This program is free software; you can redistribute it and/or
+modify it under the terms of the GNU General Public License
+as published by the Free Software Foundation; either version 2
+of the License, or (at your option) any later version.
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
 
-The above copyright notice and this permission notice shall be included in
-all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-THE SOFTWARE.
+You should have received a copy of the GNU General Public License
+along with this program; if not, write to the Free Software
+Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 --]]
 
 local socket = require "socket"
@@ -30,6 +24,24 @@ local opts = {
     port = 32923,
     debug = false
 }
+
+local function get_port()
+    local port = opts.port
+
+    if type(port) ~= "number" then
+        mp.msg.error("illegal port number")
+        os.exit(1)
+    elseif (port < 0) or (port > 65535) then
+        mp.msg.error("illegal port number")
+        os.exit(1)
+    end
+
+    return port
+end
+
+local function mpvsync_osd(msg)
+    mp.osd_message("mpvsync: " .. msg, 3)
+end
 
 --[[
     The structure of datagram
@@ -51,7 +63,7 @@ local function dg_pack(datagram)
 end
 
 local function dg_unpack(datagram_pkd)
-    datagram = {}
+    local datagram = {}
     datagram.reqtype = datagram_pkd:sub(1,3)
     datagram.reqn = datagram_pkd:sub(4,7)
     datagram.data = datagram_pkd:sub(8)
@@ -60,14 +72,23 @@ end
 
 
 --[[
-    Sent datagram's data content (* is empty)
-    Type    Server      Client
-    --------------------------
-    SYN     State       *
-    LIV     *           *
-    MSG     Message     Message
+    Protocol summary
 
-    Therefore, server serialize own state and client deserialize it
+    Type |  Server     |  Client
+    -----------------------------
+    SYN  |  rep:state  |  ini:*
+    LIV  |  ini:*      |  rep:*
+    MSG  |  ini:msg    |  -
+    END  |  -          |  ini:*
+
+    ini   - initiator
+    rep   - reply on initiator's request
+    *     - empty data
+    state - serialized playback state
+    msg   - string to show as osd_message
+
+    For example client send a SYN datagram with empty data (ini:*). Server receive it,
+    serialize and send own state (rep:state) back to client.
 ]]
 
 local function st_serialize(state)
@@ -93,18 +114,78 @@ local function st_deserialize(state_srl)
 end
 
 
+-- RingBuffer for gathering ping statistics
+RingBuffer = {
+    __tostring = function(self)
+        return table.concat(self.data, " ")
+    end
+}
+
+function RingBuffer:insert(val)
+    self.last = self.last % self.max_length + 1
+    self.data[self.last] = val
+    if self.length < self.max_length then
+        self.length = self.length + 1
+    end
+end
+
+function RingBuffer:average()
+    if self.length == 0 then
+        return nil
+    end
+
+    local acc = 0
+    for _, v in ipairs(self.data) do
+        acc = acc + v
+    end
+
+    return acc / self.length
+end
+
+function RingBuffer:clean()
+    for i, v in ipairs(self.data) do
+        self.data[i] = nil
+    end
+    self.length = 0
+    self.last = 0
+end
+
+function RingBuffer:new(max_length)
+    local buff = {
+        data = {},
+        max_length = max_length,
+        length = 0,
+        last = 0
+    }
+    self.__index = self
+    setmetatable(buff, self)
+    return buff
+end
+
+
 -- Server code
 do
-    local server = {}
-    server.clients = {}
-    server.client_timeout = 5
+    local server = {
+        clients = {},
+        client_timeout = 5
+    }
 
-    function server:get_state()
-        local state = {}
-            state.pos   = mp.get_property_number("time-pos")
-            state.speed = mp.get_property_number("speed")
-            state.pause = mp.get_property_bool("pause") and 1 or 0
-        return state
+    local callback = {}
+
+    function server:update_state()
+        if not self.state then
+            self.state = {}
+        end
+
+        self.state.pos   = mp.get_property_number("time-pos")
+        self.state.speed = mp.get_property_number("speed")
+        self.state.pause = mp.get_property_bool("pause") and 1 or 0
+
+        if self.state.pos and self.state.speed and self.state.pause then
+            return
+        else
+            self.state = nil
+        end
     end
 
     function server:is_client(id)
@@ -113,7 +194,7 @@ do
 
     function server:add_client(id, cli)
         if(not self.clients[id]) then
-            if (cli) then
+            if cli then
                 self.clients[id] = cli
             else
                 local ip, port = id:match("([^,]+):([^,]+)")
@@ -124,180 +205,259 @@ do
         end
 
         self.clients[id].live = true
-        self:wall(id .. " connected")
+        self:wall(id .. " connected", function(_id) return _id ~= id end)
     end
 
-    function server.del_client(self, id)
+    function server:del_client(id)
         self.clients[id] = nil
         self:wall(id .. " disconnected")
     end
 
-    function server.syn_all(self)
-        local datagram = { reqtype = "SYN", reqn = "0000" }
-        for _, cli in pairs(self.clients) do
-            datagram.data = st_serialize(self:get_state())
-            self.udp:sendto(dg_pack(datagram), cli.ip, cli.port)
-        end
-    end
-
-    function server.wall(self, msg)
+    function server:wall(msg, filter)
+        filter = filter or function(id) return true end
         local datagram = { reqtype = "MSG", reqn = "0000" }
         datagram.data = msg
         local datagram_pkd = dg_pack(datagram)
 
-        mp.osd_message(msg)
-        for _, cli in pairs(self.clients) do
-            print(cli.ip)
-            self.udp:sendto(datagram_pkd, cli.ip, cli.port)
+        mpvsync_osd(msg, 3)
+        for id, cli in pairs(self.clients) do
+            if filter(id) then
+                self.udp:sendto(datagram_pkd, cli.ip, cli.port)
+            end
         end
     end
 
-    function server.check_clients(self)
+    function server:check_clients()
         local datagram_pkd = dg_pack(
             { reqtype = "LIV", reqn = "0000" }
         )
 
         for id, cli in pairs(self.clients) do
-            if (not cli.live) then
+            if not cli.live then
                 self:del_client(id)
             end
         end
 
         for id, cli in pairs(self.clients) do
-            self.udp:sendto(datagram_pkd, cli.ip, cli.port)
             self.clients[id].live = false
+            self.udp:sendto(datagram_pkd, cli.ip, cli.port)
         end
     end
 
-    function server.dispatch(self, datagram_pkd, ip, port)
+    function server:dispatch(datagram_pkd, ip, port)
         local datagram = dg_unpack(datagram_pkd)
         local id = ip .. ":" .. port
 
-        if (opts.debug) then
-            mp.osd_message(datagram.reqtype .. " " .. id)
+        if opts.debug then
+            mp.msg.info(datagram.reqtype .. " " .. id)
         end
 
-        if (not self:is_client(id)) then
+        if datagram.reqtype == "SYN" then
+            local datagram_ans = { reqtype = "SYN" }
+            datagram_ans.reqn = datagram.reqn
+            self:update_state()
+            if self.state then
+                datagram_ans.data = st_serialize(self.state)
+            end
+            self.udp:sendto(dg_pack(datagram_ans), ip, port)
+        end
+
+        if not self:is_client(id) then
             self:add_client(id)
         end
 
-        self.clients[id].live = true
-
-        if (datagram.reqtype == "SYN") then
-            local datagram_ans = { reqtype = "SYN" }
-            datagram_ans.reqn = datagram.reqn
-            datagram_ans.data = st_serialize(self:get_state())
-            self.udp:sendto(dg_pack(datagram_ans), ip, port)
+        if datagram.reqtype == "END" then
+            self:del_client(id)
+        else
+            self.clients[id].live = true
         end
     end
 
-    local function get_port()
-        local port = opts.port
-        if (not port) then
-            mp.msg.error("illegal port number")
-            os.exit(1)
-        elseif (port < 0 or port > 65535) then
-            mp.msg.error("illegal port number")
-            os.exit(1)
+    function callback.syn_all()
+        local datagram = { reqtype = "SYN", reqn = "0000" }
+        server:update_state()
+        if server.state then
+            for _, cli in pairs(server.clients) do
+                datagram.data = st_serialize(server.state)
+                server.udp:sendto(dg_pack(datagram), cli.ip, cli.port)
+            end
         end
-        return port
     end
 
-    server.idle = false
+    local function onload()
+        mp.set_property_bool("pause", true)
+        mpvsync_osd("Wating for clients")
+    end
+
     function init_server()
         local port = get_port()
         server.udp = socket.udp()
         server.udp:setsockname("*", port)
-        server.udp:settimeout(2)
+        server.udp:settimeout(0.5)
+
+        onload()
 
         local last_clients_check = 0
-        return function()
-            while true do
-                if not server.idle then
-                    server.idle = true
-                    local datagram_pkd, ip, port = server.udp:receivefrom()
-                    server.idle = false
-                    if (datagram_pkd) then
-                        server:dispatch(datagram_pkd, ip, port)
-                    end
+        function event_loop()
+            while mp.keep_running do
+                local datagram_pkd, ip, port = server.udp:receivefrom()
+                if datagram_pkd then
+                    server:dispatch(datagram_pkd, ip, port)
                 end
+
+                mp.dispatch_events(false)
 
                 local now = mp.get_time()
                 if (now - last_clients_check) > server.client_timeout then
-                    print("LIV test")
                     server:check_clients()
                     last_clients_check = mp.get_time()
                 end
+
+                mp.dispatch_events(false)
             end
         end
+
+        return event_loop, callback
     end
 end
 
 
 -- Client code
 do
-    local client = {}
-    client.reqn = 1
-    client.num_ping = 20
-    client.avg_ping = 0
-    client.max_pos_error = 0.5
+    local client = {
+        reqn = 1,
+        ping_buff = RingBuffer:new(5),
+        ping_avg = 0,
+        syn_sent = 0,
+        syn_sent_last = 0,
+        syn_lost = 0,
+        max_pos_error = 0.5
+    }
+    local callback = {}
 
-    function client.syn_state(self, sv_state)
-        local pos = tonumber(mp.get_property("time-pos"))
-
-        mp.set_property_bool("pause", sv_state.pause == 1 and true or false)
-        mp.set_property("speed", sv_state.speed)
-
-        if math.abs(sv_state.pos - pos) > self.max_pos_error then
-            mp.set_property("time-pos", sv_state.pos)
-            mp.osd_message("sync " .. (sv_state.pos - pos))
+    function client:update_state()
+        if not self.state then
+            self.state = {}
         end
 
-        if (sv_state.pause == 1) then
-            mp.set_property("time-pos", sv_state.pos)
+        local st = self.state
+        st.pos   = mp.get_property_number("time-pos")
+        st.speed = mp.get_property_number("speed")
+        st.pause = mp.get_property_bool("pause") and 1 or 0
+
+        if st.pos and st.speed and st.pause then
+            return
+        else
+            self.state = nil
         end
     end
 
-    function client.req_send(self, reqtype)
+    function client:syn_state(sv_st)
+        self:update_state()
+        local st = self.state
+
+        if st then
+            if st.pause ~= sv_st.pause then
+                local pause = sv_st.pause == 1 and true or false
+                mp.set_property_bool("pause", pause)
+                if pause then
+                    mpvsync_osd("pause")
+                else
+                    mpvsync_osd("play")
+                end
+            end
+
+            if st.speed ~= sv_st.speed then
+                mp.set_property("speed", sv_st.speed)
+                mpvsync_osd("speed " .. sv_st.speed)
+            end
+
+            if st.pos ~= sv_st.pos then
+                local diff = sv_st.pos + 0.5 * self.ping_avg - st.pos
+                if math.abs(diff) > self.max_pos_error then
+                    mp.set_property("time-pos", sv_st.pos)
+                    mpvsync_osd("seek " .. sv_st.pos - st.pos)
+                end
+            end
+        end
+    end
+
+    function client:req_send(reqtype)
         local datagram = {}
         datagram.reqtype = reqtype
         datagram.reqn = string.format("%04d", self.reqn)
 
+        if reqtype == "SYN" then
+            self.syn_sent = self.syn_sent + 1
+            self.syn_sent_last = mp.get_time()
+        end
         self.udp:send(dg_pack(datagram))
 
         self.reqn = (self.reqn + 1) % 10000
-        if (self.reqn == 0) then
+        if self.reqn == 0 then
             self.reqn = 1
         end
     end
 
-    function client.dispatch(self, datagram_pkg)
-        local datagram = dg_unpack(datagram_pkg)
-        print(datagram_pkg)
-
-        if (opts.debug) then
-            mp.osd_message(datagram.reqtype)
+    function client:update_ping(reqn)
+        if reqn == 0 then
+            return
         end
 
-        if (datagram.reqtype == "SYN") then
-            self:syn_state(st_deserialize(datagram.data))
-        elseif (datagram.reqtype == "LIV") then
-            self:req_send("LIV")
-        elseif (datagram.reqtype == "MSG") then
-            mp.osd_message(datagram.data)
+        if reqn == self.reqn - 1 then
+            local ping = mp.get_time() - self.syn_sent_last
+            self.ping_buff:insert(ping)
+            self.ping_avg = self.ping_buff:average()
+        else
+            self.syn_lost = self.syn_lost + 1
         end
     end
 
-    local function get_port()
-        local port = opts.port
-        if (not port) then
-            mp.msg.error("illegal port number")
-            os.exit(1)
-        elseif (port < 0 or port > 65535) then
-            mp.msg.error("illegal port number")
-            os.exit(1)
+    function client:dispatch(datagram_pkg)
+        local datagram = dg_unpack(datagram_pkg)
+
+        if opts.debug then
+            mp.msg.info(datagram_pkg)
         end
-        return port
+
+        if datagram.reqtype == "SYN" then
+            self:update_ping(tonumber(datagram.reqn))
+            self:syn_state(st_deserialize(datagram.data))
+        elseif datagram.reqtype == "LIV" then
+            self:req_send("LIV")
+        elseif datagram.reqtype == "MSG" then
+            mpvsync_osd(opts.connect .. ": " .. datagram.data)
+        else
+            return nil
+        end
+
+        return true
+    end
+
+    function client:debug_info()
+        mp.msg.info("ping_avg " .. self.ping_avg)
+    end
+
+    function callback.syn()
+        client:req_send("SYN")
+        local datagram_pkg = client.udp:receive()
+        if datagram_pkg then
+            return client:dispatch(datagram_pkg)
+        else
+            return false
+        end
+    end
+
+    function callback.disconnect()
+        client:req_send("END")
+    end
+
+    local function onload()
+        mp.set_property_bool("pause", true)
+        mpvsync_osd("Connecting to " .. opts.connect)
+        if callback.syn() then
+            mpvsync_osd("Connection enstablished")
+        end
     end
 
     function init_client()
@@ -306,54 +466,53 @@ do
         local ip = socket.dns.toip(host)
         client.udp = socket.udp()
         client.udp:setpeername(ip, port)
-        client.udp:settimeout(3)
+        client.udp:settimeout(1)
 
-        --[[
-        client:req_send("SYN")
-        local datagram = client.udp:receive()
-        if datagram then
-            client:dispatch(datagram)
-        end
-        ]]
+        onload()
 
-        return function()
-            while true do
-                local datagram = client.udp:receive()
-                if datagram then
-                    client:dispatch(datagram)
+        function cli_loop()
+            while mp.keep_running do
+                mp.dispatch_events(false)
+
+                local datagram_pkg = client.udp:receive()
+                if datagram_pkg then
+                    client:dispatch(datagram_pkg)
                 end
 
-                client:req_send("SYN")
-                datagram = client.udp:receive()
-                if datagram then
-                    client:dispatch(datagram)
+                if opts.debug then
+                    client:debug_info()
                 end
             end
         end
+
+        return cli_loop, callback
     end
 end
 
 
 -- Run
-do
-    options.read_options(opts, "mpvsync")
+options.read_options(opts, "mpvsync")
 
-    if (opts.connect ~= "") then
-        local cli_loop = init_client()
-        if(cli_loop) then
-            mp.register_event("file-loaded",  cli_loop)
-        end
+local event_loop
+if opts.connect ~= "" then
+    event_loop, callback = init_client()
 
-    else
-        local srv_loop = init_server()
-
-        if(srv_loop) then
-            local function onload()
-                    mp.set_property_bool("pause", true)
-                    mp.osd_message("Server is listening and wating for clients.", 5)
-                    srv_loop()
-            end
-            mp.register_event("file-loaded", onload)
-        end
+    if callback then
+        mp.add_periodic_timer(10, callback.syn)
+        mp.register_event("seek", callback.syn)
+        mp.register_event("end-file", callback.disconnect)
+        mp.observe_property("pause", "bool", callback.syn)
     end
+else
+    event_loop, callback = init_server()
+
+    if callback then
+        mp.register_event("seek", callback.syn_all)
+        mp.observe_property("pause", "bool", callback.syn_all)
+        mp.observe_property("speed", "number", callback.syn_all)
+    end
+end
+
+if event_loop then
+    mp_event_loop = event_loop
 end
