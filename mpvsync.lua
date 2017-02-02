@@ -19,28 +19,50 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 local socket = require "socket"
 local options = require 'mp.options'
 
-local opts = {
-    connect = "",
-    port = 32923,
-    debug = false
+-- Default options
+local _opts = {
+        port = 32923,
+        debug = false,
+        osd = true,
+        connect = ""
 }
 
-local function get_port()
-    local port = opts.port
+-- Assert options before use it
+local opts = {}
 
-    if type(port) ~= "number" then
-        mp.msg.error("illegal port number")
-        os.exit(1)
-    elseif (port < 0) or (port > 65535) then
+function opts:assert(_opts)
+    local port = _opts.port
+    if type(port) ~= "number" or (port < 0) or (port > 65535) then
         mp.msg.error("illegal port number")
         os.exit(1)
     end
 
-    return port
+    if type(_opts.debug) ~= "boolean" then
+        mp.msg.error("illegal debug value")
+        os.exit(1)
+    end
+
+    if type(_opts.osd) ~= "boolean" then
+        mp.msg.error("illegal osd value")
+        os.exit(1)
+    end
+
+    if type(_opts.connect) ~= "string" then
+        mp.msg.error("illegal connect value")
+        os.exit(1)
+    end
+
+    self.port    = _opts.port
+    self.debug   = _opts.debug
+    self.osd     = _opts.osd
+    self.connect = _opts.connect
 end
 
+--  Show OSD message
 local function mpvsync_osd(msg)
-    mp.osd_message("mpvsync: " .. msg, 3)
+    if opts.osd then
+        mp.osd_message("mpvsync: " .. msg, 3)
+    end
 end
 
 --[[
@@ -49,23 +71,36 @@ end
     | 1 | 2  |       3       |
     |SYN|0000|p66.360000;s1.0|
 
-    1. Type of datagram (SYN, LIV or MSG)
-    2. Datagram's index; used for network stats and ping calculation
+    1. [3 bytes] Type of datagram (SYN, LIV, MSG, END)
+    2. [4 bytes] Datagram's index; used for network stats and ping calculation
         * Clients count datagrams sent
-        * Server-initiated datagrams always have index 0000
+        * All datagrams except SYN have index 0000
+        * Server-initiated SYN datagrams also have index 0000
         * Server replies to client with the index received
-    3. Data; can be empty for certain datagram's types
+    3. [from 0 to 64 bytes] Data; can be empty for certain datagram's types
         * The data section has a variable size
 ]]
 
 local function dg_pack(datagram)
-    return datagram.reqtype .. datagram.reqn .. (datagram.data or "")
+    if not datagram.reqtype or datagram.reqtype:len() ~= 3 then
+        error("Invalid reqtype")
+    end
+
+    if (type(datagram.reqn) ~= "number") or (datagram.reqn < 0) or (datagram.reqn > 9999) then
+        error("Invalid reqn")
+    end
+
+    if datagram.data and datagram.data:len() > 64 then
+        error("Data string is too long")
+    end
+
+    return datagram.reqtype .. string.format("%04d", datagram.reqn) .. (datagram.data or "")
 end
 
 local function dg_unpack(datagram_pkd)
     local datagram = {}
     datagram.reqtype = datagram_pkd:sub(1,3)
-    datagram.reqn = datagram_pkd:sub(4,7)
+    datagram.reqn = tonumber(datagram_pkd:sub(4,7))
     datagram.data = datagram_pkd:sub(8)
     return datagram
 end
@@ -107,10 +142,14 @@ end
 local function st_deserialize(state_srl)
     local state = {}
     local s_pos, s_speed, s_pause = state_srl:match("p([^,]+);s([^,]+);m([^,]+)")
-    state.pos   = tonumber(s_pos)
-    state.speed = tonumber(s_speed)
-    state.pause = tonumber(s_pause)
-    return state
+    if s_pos and s_speed and s_pause then
+        state.pos   = tonumber(s_pos)
+        state.speed = tonumber(s_speed)
+        state.pause = tonumber(s_pause)
+        return state
+    else
+        return nil
+    end
 end
 
 
@@ -167,10 +206,31 @@ end
 do
     local server = {
         clients = {},
-        client_timeout = 5
+        client_timeout = 5,
+        timeout = 0.5
     }
 
     local callback = {}
+
+    function server:listen(port)
+        local err_prefix = "Cannot start server on port " .. port .. ": "
+        local udp, status, err
+
+        udp, err = socket.udp()
+        if not udp then
+            mp.msg.error(err_prefix .. err)
+            os.exit(1)
+        end
+
+        status, err = udp:setsockname("*", port)
+        if not status then
+            mp.msg.error(err_prefix .. err)
+            os.exit(1)
+        end
+
+        udp:settimeout(self.timeout)
+        self.udp = udp
+    end
 
     function server:update_state()
         if not self.state then
@@ -215,7 +275,7 @@ do
 
     function server:wall(msg, filter)
         filter = filter or function(id) return true end
-        local datagram = { reqtype = "MSG", reqn = "0000" }
+        local datagram = { reqtype = "MSG", reqn = 0 }
         datagram.data = msg
         local datagram_pkd = dg_pack(datagram)
 
@@ -228,9 +288,7 @@ do
     end
 
     function server:check_clients()
-        local datagram_pkd = dg_pack(
-            { reqtype = "LIV", reqn = "0000" }
-        )
+        local datagram_pkd = dg_pack{ reqtype = "LIV", reqn = 0 }
 
         for id, cli in pairs(self.clients) do
             if not cli.live then
@@ -253,12 +311,16 @@ do
         end
 
         if datagram.reqtype == "SYN" then
-            local datagram_ans = { reqtype = "SYN" }
-            datagram_ans.reqn = datagram.reqn
+            local datagram_ans = {
+                reqtype = "SYN",
+                reqn = datagram.reqn
+            }
+
             self:update_state()
             if self.state then
                 datagram_ans.data = st_serialize(self.state)
             end
+
             self.udp:sendto(dg_pack(datagram_ans), ip, port)
         end
 
@@ -274,7 +336,7 @@ do
     end
 
     function callback.syn_all()
-        local datagram = { reqtype = "SYN", reqn = "0000" }
+        local datagram = { reqtype = "SYN", reqn = 0 }
         server:update_state()
         if server.state then
             for _, cli in pairs(server.clients) do
@@ -286,15 +348,11 @@ do
 
     local function onload()
         mp.set_property_bool("pause", true)
-        mpvsync_osd("Wating for clients")
+        mpvsync_osd("Wating for clients. Port: " .. opts.port)
     end
 
     function init_server()
-        local port = get_port()
-        server.udp = socket.udp()
-        server.udp:setsockname("*", port)
-        server.udp:settimeout(0.5)
-
+        server:listen(opts.port)
         onload()
 
         local last_clients_check = 0
@@ -353,6 +411,10 @@ do
     end
 
     function client:syn_state(sv_st)
+        if not sv_st then
+            return
+        end
+
         self:update_state()
         local st = self.state
 
@@ -385,18 +447,22 @@ do
     function client:req_send(reqtype)
         local datagram = {}
         datagram.reqtype = reqtype
-        datagram.reqn = string.format("%04d", self.reqn)
 
         if reqtype == "SYN" then
+            datagram.reqn = self.reqn
+
+            self.reqn = (self.reqn + 1) % 10000
+            if self.reqn == 0 then
+                self.reqn = 1
+            end
+
             self.syn_sent = self.syn_sent + 1
             self.syn_sent_last = mp.get_time()
+        else
+            datagram.reqn = 0
         end
-        self.udp:send(dg_pack(datagram))
 
-        self.reqn = (self.reqn + 1) % 10000
-        if self.reqn == 0 then
-            self.reqn = 1
-        end
+        self.udp:send(dg_pack(datagram))
     end
 
     function client:update_ping(reqn)
@@ -416,12 +482,8 @@ do
     function client:dispatch(datagram_pkg)
         local datagram = dg_unpack(datagram_pkg)
 
-        if opts.debug then
-            mp.msg.info(datagram_pkg)
-        end
-
         if datagram.reqtype == "SYN" then
-            self:update_ping(tonumber(datagram.reqn))
+            self:update_ping(datagram.reqn)
             self:syn_state(st_deserialize(datagram.data))
         elseif datagram.reqtype == "LIV" then
             self:req_send("LIV")
@@ -435,7 +497,9 @@ do
     end
 
     function client:debug_info()
-        mp.msg.info("ping_avg " .. self.ping_avg)
+        mp.msg.info("ping: avg " .. self.ping_avg ..
+                        " sent " .. self.syn_sent ..
+                        " lost " .. self.syn_lost)
     end
 
     function callback.syn()
@@ -462,7 +526,7 @@ do
 
     function init_client()
         local host = opts.connect
-        local port = get_port()
+        local port = opts.port
         local ip = socket.dns.toip(host)
         client.udp = socket.udp()
         client.udp:setpeername(ip, port)
@@ -476,6 +540,10 @@ do
 
                 local datagram_pkg = client.udp:receive()
                 if datagram_pkg then
+                    if opts.debug then
+                        mp.msg.info(datagram_pkg)
+                    end
+
                     client:dispatch(datagram_pkg)
                 end
 
@@ -491,7 +559,9 @@ end
 
 
 -- Run
-options.read_options(opts, "mpvsync")
+local _opts = {}
+options.read_options(_opts, "mpvsync")
+opts:assert(_opts)
 
 local event_loop
 if opts.connect ~= "" then
