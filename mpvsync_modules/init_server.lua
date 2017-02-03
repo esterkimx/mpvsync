@@ -154,8 +154,6 @@ local function dispatch(datagram_pkd, ip, port)
     end
 end
 
-local callback = {}
-
 function syn_all()
     local datagram = { reqtype = "SYN", reqn = 0 }
     update_pb_state()

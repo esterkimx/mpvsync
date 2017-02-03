@@ -52,15 +52,15 @@ end
 
 function utils.dg_unpack(datagram_pkd)
     local datagram = {}
-    datagram.reqtype = datagram_pkd:sub(1,3)
-    datagram.reqn = tonumber(datagram_pkd:sub(4,7))
+    datagram.reqtype = datagram_pkd:sub(1, 3)
+    datagram.reqn = tonumber(datagram_pkd:sub(4, 7))
     datagram.data = datagram_pkd:sub(8)
     return datagram
 end
 
--- Sometimes better know the type before unpacking
+-- Sometimes it's better know the type before unpacking
 function utils.dg_type(datagram_pkd)
-    return datagram_pkd:sub(1,3)
+    return datagram_pkd:sub(1, 3)
 end
 
 --[[

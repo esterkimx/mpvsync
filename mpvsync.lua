@@ -35,34 +35,14 @@ local _opts = {
 local opts = {}
 
 function opts:assert(_opts)
-    if type(_opts.enabled) ~= "boolean" then
-        mp.msg.error("illegal enabled value")
-        os.exit(1)
-    end
-
     local port = _opts.port
     if type(port) ~= "number" or (port < 0) or (port > 65535) then
         mp.msg.error("illegal port number")
         os.exit(1)
     end
 
-    if type(_opts.debug) ~= "boolean" then
-        mp.msg.error("illegal debug value")
-        os.exit(1)
-    end
-
-    if type(_opts.osd) ~= "boolean" then
-        mp.msg.error("illegal osd value")
-        os.exit(1)
-    end
-
     if type(_opts.host) ~= "string" then
         mp.msg.error("illegal host value")
-        os.exit(1)
-    end
-
-    if type(_opts.wait) ~= "boolean" then
-        mp.msg.error("illegal wait value")
         os.exit(1)
     end
 

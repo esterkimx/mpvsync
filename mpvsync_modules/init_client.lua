@@ -94,8 +94,8 @@ local function syn_pb_state(sv_st)
             ut.mpvsync_osd("speed " .. sv_st.speed)
         end
 
-        local pos_error = math.max(math.min(1.5 * stats.ping_avg, max_pos_error), min_pos_error)
         if pb_state.pos ~= sv_st.pos then
+            local pos_error = math.max(math.min(1.5 * stats.ping_avg, max_pos_error), min_pos_error)
             local diff = sv_st.pos + 0.5 * stats.ping_avg - pb_state.pos
             if math.abs(diff) > pos_error then
                 mp.set_property("time-pos", sv_st.pos)
@@ -169,8 +169,6 @@ local function debug_info()
                     " sent " .. stats.syn_sent ..
                     " lost " .. stats.syn_lost)
 end
-
-local callback = {}
 
 function syn()
     req_send("SYN")
