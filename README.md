@@ -4,7 +4,7 @@ mpvsync
 
 Prerequisites
 -------------
-The plugin uses luasocket library for Lua 5.2. On many popular Linux distributions it could be found in the package `lua-socket`. E.g. on Ubuntu run `
+The plugin uses *luasocket* library for Lua version 5.2. On many popular Linux distributions it could be found in the `lua-socket` package. E.g. on Ubuntu run
 ```
 # apt-get install lua-socket
 ```
@@ -30,13 +30,13 @@ $ mpv --script mpvsync.lua
 
 Usage
 -----
-You need one mpv instance running as the server and others as the clients. After the installation mpvsync will listening on the port *32923*. Try
+You need one mpv instance running as the server and others as the clients. By default mpvsync will listen to the port *32923*. Try
 ```
 $ mpv --script-opts=mpvsync-enabled=yes <input-file>
 ```
 
-After loading the file it should be paused and showing "Waiting for clients" on-screen message.
-You can specify port with the *mpvsync-port* option (note that to pass options to scripts mpv uses the *--script-opts* option):
+After loading the file it should be paused and showing `"Waiting for clients"` on-screen message.
+You can specify port with the *mpvsync-port* option (note that to pass options to scripts mpv uses the *--script-opts* key):
 ```
 $ mpv --script-opts=mpvsync-enabled=yes,mpvsync-port=58785 <input-file>
 ```
@@ -46,7 +46,7 @@ If you pass *mpvsync-host* option to mpv, it'll run in the client mode. E.g.
 $ mpv --script-opts=mpvsync-enabled=yes,mpvsync-host=localhost <input-file>
 ```
 
-After connection is established the server will control the clients' playbacks.
+After the connection is established the server will control the clients' playbacks.
 
 Configuration
 -------------
@@ -60,8 +60,7 @@ Now we can put config file there:
 $ $EDITOR ~/.config/mpv/lua-settings/mpvsync.conf
 ```
 
-mpvsync disabled by default and we need to pass the *mpvsync-enabled=yes* option.
-We can make it enabled-by-default via the config file:
+mpvsync disabled by default and we need to pass the *mpvsync-enabled=yes* option to use it. We can make it enabled-by-default via the config file:
 ```
 #Example mpvsync configuration file
 enabled=yes
@@ -74,7 +73,7 @@ enabled=yes
 wait=no
 ```
 
-Example
+Examples
 --------
 Start the mpvsync server listening the port *3535* without mpvsync installation
 ```
