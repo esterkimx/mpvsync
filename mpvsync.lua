@@ -56,10 +56,10 @@ function opts:assert(_opts)
     self.port    = _opts.port
     self.debug   = _opts.debug
     self.osd     = _opts.osd
-    self.host = _opts.host
+    self.host    = _opts.host
 end
 
--- Run
+
 options.read_options(_opts, "mpvsync")
 opts:assert(_opts)
 

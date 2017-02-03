@@ -1,13 +1,32 @@
+--[[
+Copyright (C) 2017  Maksim Esterkin
+
+This program is free software; you can redistribute it and/or
+modify it under the terms of the GNU General Public License
+as published by the Free Software Foundation; either version 2
+of the License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program; if not, write to the Free Software
+Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+--]]
+
 local socket = require "socket"
 local ut = require "mpvsync_modules/utils"
 
 local debug = false
 
+local pb_state
+local udp
+
 local clients = {}
 local client_timeout = 5
 local timeout = 0.5
-local state
-local udp
 
 local function listen(port)
     local err_prefix = "Cannot start server on port " .. port .. ": "
@@ -30,8 +49,11 @@ local function listen(port)
 end
 
 local function wall(msg, filter)
-    local datagram = { reqtype = "MSG", reqn = 0 }
-    datagram.data = msg
+    local datagram = {
+        reqtype = "MSG",
+        reqn = 0,
+        data = msg
+    }
     local datagram_pkd = ut.dg_pack(datagram)
 
     filter = filter or function(id) return true end
@@ -44,19 +66,19 @@ local function wall(msg, filter)
     end
 end
 
-local function update_state()
-    if not state then
-        state = {}
+local function update_pb_state()
+    if not pb_state then
+        pb_state = {}
     end
 
-    state.pos   = mp.get_property_number("time-pos")
-    state.speed = mp.get_property_number("speed")
-    state.pause = mp.get_property_bool("pause") and 1 or 0
+    pb_state.pos   = mp.get_property_number("time-pos")
+    pb_state.speed = mp.get_property_number("speed")
+    pb_state.pause = mp.get_property_bool("pause") and 1 or 0
 
-    if state.pos and state.speed and state.pause then
+    if pb_state.pos and pb_state.speed and pb_state.pause then
         return true
     else
-        state = false
+        pb_state = false
     end
 end
 
@@ -65,7 +87,7 @@ local function is_client(id)
 end
 
 local function add_client(id, cli)
-    if(not clients[id]) then
+    if not clients[id] then
         if cli then
             clients[id] = cli
         else
@@ -95,8 +117,8 @@ local function check_clients()
     end
 
     for id, cli in pairs(clients) do
-        clients[id].live = false
         udp:sendto(datagram_pkd, cli.ip, cli.port)
+        clients[id].live = false
     end
 end
 
@@ -109,17 +131,17 @@ local function dispatch(datagram_pkd, ip, port)
     end
 
     if datagram.reqtype == "SYN" then
-        local datagram_ans = {
+        local datagram_rep = {
             reqtype = "SYN",
             reqn = datagram.reqn
         }
 
-        update_state()
-        if state then
-            datagram_ans.data = ut.st_serialize(state)
+        update_pb_state()
+        if pb_state then
+            datagram_rep.data = ut.st_serialize(pb_state)
         end
 
-        udp:sendto(ut.dg_pack(datagram_ans), ip, port)
+        udp:sendto(ut.dg_pack(datagram_rep), ip, port)
     end
 
     if not is_client(id) then
@@ -135,15 +157,18 @@ end
 
 local callback = {}
 
-function callback.syn_all()
+function syn_all()
     local datagram = { reqtype = "SYN", reqn = 0 }
-    update_state()
-    if state then
+    update_pb_state()
+    if pb_state then
         for _, cli in pairs(clients) do
-            datagram.data = ut.st_serialize(state)
+            datagram.data = ut.st_serialize(pb_state)
             udp:sendto(ut.dg_pack(datagram), cli.ip, cli.port)
         end
     end
+end
+
+function disconnect()
 end
 
 local function init_server(_opts)
@@ -153,27 +178,20 @@ local function init_server(_opts)
     udp = listen(opts.port)
 
     -- Add callbaks for events
-    mp.register_event("seek", callback.syn_all)
-    mp.observe_property("pause", "bool", callback.syn_all)
-    mp.observe_property("speed", "number", callback.syn_all)
+    mp.register_event("seek", syn_all)
+    mp.observe_property("pause", "bool", syn_all)
+    mp.observe_property("speed", "number", syn_all)
+    mp.add_periodic_timer(client_timeout, check_clients)
 
+    -- Wait for clients on load
     mp.set_property_bool("pause", true)
     ut.mpvsync_osd("Wating for clients. Port: " .. opts.port)
 
-    local last_clients_check = 0
     local function event_loop()
         while mp.keep_running do
             local datagram_pkd, ip, port = udp:receivefrom()
             if datagram_pkd then
                 dispatch(datagram_pkd, ip, port)
-            end
-
-            mp.dispatch_events(false)
-
-            local now = mp.get_time()
-            if (now - last_clients_check) > client_timeout then
-                check_clients()
-                last_clients_check = mp.get_time()
             end
 
             mp.dispatch_events(false)
