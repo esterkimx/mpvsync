@@ -58,6 +58,10 @@ function utils.dg_unpack(datagram_pkd)
     return datagram
 end
 
+-- Sometimes better know the type before unpacking
+function utils.dg_type(datagram_pkd)
+    return datagram_pkd:sub(1,3)
+end
 
 --[[
     Protocol summary
@@ -82,15 +86,11 @@ end
 ]]
 
 function utils.st_serialize(state)
-    local state_srl = {}
-    state_srl[#state_srl + 1] = "p"
-    state_srl[#state_srl + 1] = state.pos
-    state_srl[#state_srl + 1] = ";"
-    state_srl[#state_srl + 1] = "s"
-    state_srl[#state_srl + 1] = state.speed
-    state_srl[#state_srl + 1] = ";"
-    state_srl[#state_srl + 1] = "m"
-    state_srl[#state_srl + 1] = state.pause
+    local state_srl = {
+        "p", state.pos, ";",
+        "s", state.speed, ";",
+        "m", state.pause
+    }
     return table.concat(state_srl)
 end
 

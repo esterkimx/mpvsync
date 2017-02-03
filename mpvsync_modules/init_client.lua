@@ -26,6 +26,8 @@ local pb_state
 local udp
 
 local max_pos_error = 0.5
+local min_pos_error = 0.1
+
 local stats = {
     reqn = 1,
     ping_buff = RingBuffer:new(5),
@@ -87,9 +89,10 @@ local function syn_pb_state(sv_st)
             ut.mpvsync_osd("speed " .. sv_st.speed)
         end
 
+        local pos_error = math.max(math.min(1.5 * stats.ping_avg, max_pos_error), min_pos_error)
         if pb_state.pos ~= sv_st.pos then
             local diff = sv_st.pos + 0.5 * stats.ping_avg - pb_state.pos
-            if math.abs(diff) > math.min(1.5 * stats.ping_avg, max_pos_error) then
+            if math.abs(diff) > pos_error then
                 mp.set_property("time-pos", sv_st.pos)
                 ut.mpvsync_osd("seek " .. sv_st.pos - pb_state.pos)
             end
@@ -167,14 +170,14 @@ local callback = {}
 function syn()
     req_send("SYN")
     local datagram_pkg = udp:receive()
-    if datagram_pkg then
+    if datagram_pkg and ut.dg_type(datagram_pkg) == "SYN" then
         return dispatch(datagram_pkg)
     else
         return false
     end
 end
 
-function disconnect()
+local function disconnect()
     req_send("END")
 end
 
@@ -192,10 +195,6 @@ local function init_client(_opts)
     -- Connect on load
     mp.set_property_bool("pause", true)
     ut.mpvsync_osd("Connecting to " .. opts.host)
-
-    if syn() then
-        ut.mpvsync_osd("Connection enstablished")
-    end
 
     local function event_loop()
         while mp.keep_running do

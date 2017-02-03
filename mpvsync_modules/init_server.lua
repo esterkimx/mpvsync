@@ -48,17 +48,16 @@ local function listen(port)
     return udp
 end
 
-local function wall(msg, filter)
+local function wall(reqtype, data, filter)
     local datagram = {
-        reqtype = "MSG",
+        reqtype = reqtype,
         reqn = 0,
-        data = msg
+        data = data or ""
     }
     local datagram_pkd = ut.dg_pack(datagram)
 
     filter = filter or function(id) return true end
 
-    ut.mpvsync_osd(msg, 3)
     for id, cli in pairs(clients) do
         if filter(id) then
             udp:sendto(datagram_pkd, cli.ip, cli.port)
@@ -99,12 +98,12 @@ local function add_client(id, cli)
     end
 
     clients[id].live = true
-    wall(id .. " connected", function(_id) return _id ~= id end)
+    wall("MSG", id .. " connected", function(_id) return _id ~= id end)
 end
 
 local function del_client(id)
     clients[id] = nil
-    wall(id .. " disconnected")
+    wall("MSG", id .. " disconnected")
 end
 
 local function check_clients()
@@ -168,7 +167,8 @@ function syn_all()
     end
 end
 
-function disconnect()
+local function disconnect()
+    wall("END")
 end
 
 local function init_server(_opts)
@@ -179,6 +179,7 @@ local function init_server(_opts)
 
     -- Add callbaks for events
     mp.register_event("seek", syn_all)
+    mp.register_event("end-file", disconnect)
     mp.observe_property("pause", "bool", syn_all)
     mp.observe_property("speed", "number", syn_all)
     mp.add_periodic_timer(client_timeout, check_clients)
