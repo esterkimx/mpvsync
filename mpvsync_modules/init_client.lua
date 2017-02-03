@@ -30,20 +30,25 @@ local min_pos_error = 0.1
 
 local stats = {
     reqn = 1,
-    ping_buff = RingBuffer:new(5),
+    ping_buff = RingBuffer:new(6),
     ping_avg = 0,
     syn_sent = 0,
     syn_sent_last = 0,
     syn_lost = 0
 }
 
-
 local function connect(host, port)
-    local ip, err = socket.dns.toip(host)
     udp = socket.udp()
-    udp:setpeername(ip, port)
-    udp:settimeout(1)
 
+    local ip, err = socket.dns.toip(host)
+    if not ip then
+        -- For some hosts provided as IPs dns.toip fails
+        local ip = host
+        udp:setpeername(ip, port)
+    else
+        udp:setpeername(ip, port)
+    end
+    udp:settimeout(1)
 end
 
 local function update_pb_state()
@@ -193,7 +198,9 @@ local function init_client(_opts)
     mp.add_periodic_timer(10, syn)
 
     -- Connect on load
-    mp.set_property_bool("pause", true)
+    if opts.wait then
+        mp.set_property_bool("pause", true)
+    end
     ut.mpvsync_osd("Connecting to " .. opts.host)
 
     local function event_loop()

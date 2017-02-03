@@ -22,16 +22,24 @@ local init_client = require "mpvsync_modules/init_client"
 
 -- Default options
 local _opts = {
+        help = false,
+        enabled = false,
         port = 32923,
         debug = false,
         osd = true,
-        host = ""
+        host = "",
+        wait = true
 }
 
 -- Assert options before use it
 local opts = {}
 
 function opts:assert(_opts)
+    if type(_opts.enabled) ~= "boolean" then
+        mp.msg.error("illegal enabled value")
+        os.exit(1)
+    end
+
     local port = _opts.port
     if type(port) ~= "number" or (port < 0) or (port > 65535) then
         mp.msg.error("illegal port number")
@@ -53,23 +61,40 @@ function opts:assert(_opts)
         os.exit(1)
     end
 
-    self.port    = _opts.port
-    self.debug   = _opts.debug
-    self.osd     = _opts.osd
-    self.host    = _opts.host
-end
+    if type(_opts.wait) ~= "boolean" then
+        mp.msg.error("illegal wait value")
+        os.exit(1)
+    end
 
+    self.enabled      = _opts.enabled
+    self.port         = _opts.port
+    self.debug        = _opts.debug
+    self.osd          = _opts.osd
+    self.host         = _opts.host
+    self.wait         = _opts.wait
+    self.help         = _opts.help
+end
 
 options.read_options(_opts, "mpvsync")
 opts:assert(_opts)
 
-local event_loop
-if opts.host ~= "" then
-    event_loop = init_client(opts)
-else
-    event_loop = init_server(opts)
+if opts.help then
+    mp.msg.info("mpvsync options:")
+    for o, v in pairs(_opts) do
+        mp.msg.info(type(v) .. "\tmpvsync-" .. o)
+    end
+    os.exit(1)
 end
 
-if event_loop then
-    mp_event_loop = event_loop
+if opts.enabled then
+    local event_loop
+    if opts.host ~= "" then
+        event_loop = init_client(opts)
+    else
+        event_loop = init_server(opts)
+    end
+
+    if event_loop then
+        mp_event_loop = event_loop
+    end
 end

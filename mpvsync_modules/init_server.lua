@@ -185,7 +185,9 @@ local function init_server(_opts)
     mp.add_periodic_timer(client_timeout, check_clients)
 
     -- Wait for clients on load
-    mp.set_property_bool("pause", true)
+    if opts.wait then
+        mp.set_property_bool("pause", true)
+    end
     ut.mpvsync_osd("Wating for clients. Port: " .. opts.port)
 
     local function event_loop()
