@@ -16,45 +16,7 @@ along with this program; if not, write to the Free Software
 Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 --]]
 
-
---[[
-    The structure of datagram
-
-    | 1 | 2  |       3       |
-    |SYN|0000|p66.360000;s1.0|
-
-    1. [3 bytes] Type of datagram (SYN, LIV, MSG, END)
-    2. [4 bytes] The datagram's index; used fora network stats and ping calculation
-        * Clients count SYN datagrams sent
-        * All datagrams except SYN have index 0000
-        * Server-initiated SYN datagrams also have index 0000
-        * The server replies toa the client with the index received
-    3. [from 0 to 64 bytes] Data string; can be empty for certain datagrams' types
-        * The data section has a variable size
-]
-
---[[
-    Protocol summary
-
-    Type |  Server     |  Client
-    -----------------------------
-    SYN  |  r:state    |  q:*
-    SYN  |  q:state    |  -
-    LIV  |  q:*        |  r:*
-    MSG  |  q:msg      |  -
-    END  |  q:*        |  -
-    END  |  -          |  q:*
-
-    q     - request
-    r     - reply on request
-    *     - empty data
-    state - serialized playback state
-    msg   - string to show as osd_message
-
-    For example a client send a SYN datagram with empty data (ini:*). The server receive it,
-    serialize and send own playback state (rep:state) back to the client.
-]]
-
+local posix = require "posix"
 
 local utils = {}
 
@@ -87,29 +49,6 @@ function utils.dg_type(datagram_pkd)
     return datagram_pkd:sub(1, 3)
 end
 
--- Playback state serialization/deserialization
-function utils.st_serialize(pb_state)
-    local pb_state_srl = {
-        "p", pb_state.pos, ";",
-        "s", pb_state.speed, ";",
-        "m", pb_state.pause
-    }
-    return table.concat(pb_state_srl)
-end
-
-function utils.st_deserialize(pb_state_srl)
-    local pb_state = {}
-    local s_pos, s_speed, s_pause = pb_state_srl:match("p([^,]+);s([^,]+);m([^,]+)")
-    if s_pos and s_speed and s_pause then
-        pb_state.pos   = tonumber(s_pos)
-        pb_state.speed = tonumber(s_speed)
-        pb_state.pause = tonumber(s_pause)
-        return pb_state
-    else
-        return nil
-    end
-end
-
 --  Show OSD message
 function utils.mpvsync_osd(msg)
     mp.osd_message("mpvsync: " .. msg, 3)
@@ -122,6 +61,30 @@ function utils.get_next_timeout_ms()
         next_timeout = 1000 * next_timeout
     end
     return next_timeout
+end
+
+-- Posix poll wrap
+-- If timeout < 0 returns 0
+-- If timeout == nil blocks indefinitely
+function utils.poll(fds, timeout)
+    if timeout then
+        if timeout > 0 then
+            return posix.poll(fds, timeout)
+        else
+            return 0
+        end
+    else
+        return posix.poll(fds, -1)
+    end
+end
+
+function utils.is_poll_timeout(poll_ret)
+    return poll_ret == 0
+end
+
+-- Flush data from pipe/socket
+function utils.flush(fd)
+    posix.read(fd, 1)
 end
 
 return utils

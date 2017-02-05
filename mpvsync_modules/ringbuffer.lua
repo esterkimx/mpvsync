@@ -58,7 +58,7 @@ function RingBuffer:new(max_length)
         length = 0,
         last = 0
     }
-    self.__index = self
+    self.__index = self,
     setmetatable(buff, self)
     return buff
 end

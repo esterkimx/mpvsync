@@ -17,8 +17,8 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 --]]
 
 local options = require "mp.options"
-local init_server = require "mpvsync_modules/init_server"
-local init_client = require "mpvsync_modules/init_client"
+local server = require "mpvsync_modules/server"
+local client = require "mpvsync_modules/client"
 
 -- Default options
 local _opts = {
@@ -45,12 +45,12 @@ function opts:assert(_opts)
         os.exit(1)
     end
 
-    self.enabled      = _opts.enabled
-    self.port         = _opts.port
-    self.osd          = _opts.osd
-    self.host         = _opts.host
-    self.wait         = _opts.wait
-    self.help         = _opts.help
+    self.enabled = _opts.enabled
+    self.port    = _opts.port
+    self.osd     = _opts.osd
+    self.host    = _opts.host
+    self.wait    = _opts.wait
+    self.help    = _opts.help
 end
 
 options.read_options(_opts, "mpvsync")
@@ -67,9 +67,11 @@ end
 if opts.enabled then
     local event_loop
     if opts.host ~= "" then
-        event_loop = init_client(opts)
+        local cli = client:new(opts)
+        event_loop = cli:get_event_loop()
     else
-        event_loop = init_server(opts)
+        local srv = server:new(opts)
+        event_loop = srv:get_event_loop(opts)
     end
 
     if event_loop then
