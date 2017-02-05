@@ -1,13 +1,27 @@
 mpvsync
 ------------
-**mpvsync** is a simple playback network synchronization plugin for **mpv**. You can play same file synchronously with different instances of mpv running on different machines. It will not copy the file itself, so you'll need to obtain a local copy on every device before usage.
+**mpvsync** is a simple playback network synchronization plugin for **mpv**. You can play the same file synchronously with different instances of mpv running on different machines. It will not copy the file itself, so you'll need to obtain a local copy of the file on every device before usage.
 
 Prerequisites
 -------------
-The plugin uses *luasocket* library for Lua version 5.2. On many popular Linux distributions it could be found in the `lua-socket` package. E.g. on Ubuntu run
+The plugin uses *luaposix* library for Lua version 5.2. On many popular Linux distributions it could be found in the *lua-posix* package. E.g. on Ubuntu run
 ```
-# apt-get install lua-socket
+# apt-get install lua-posix
 ```
+
+As another option you can use the **luarocks** package manager to install necessary lua libraries. E.g. on Archlinux there is no *luaposix* package for Lua 5.2, so let's install it using luarocks instead. First of all install luarocks itself for Lua 5.2:
+```
+# pacman -Syu luarocks-5.2
+```
+then install librariy:
+```
+$ luarocks-5.2 install luaposix --local
+```
+Note that we used *--local* option, so luarocks installed packages into *~/.luarocks/* directory instead of the system-wide installation. So now we need to add this directory to *$LUA_PATH* and *$LUA_CPATH* environment variables. We can do it easily with luarocks, run
+```
+$ luarocks-5.2 path
+```
+It will write to stdout export values for *$LUA_PATH* and *$LUA_CPATH*. Just copy it to your shell's configuration file (i.e. *~/.bashrc* or *~/.zshrc*)
 
 Installation
 ------------
@@ -20,7 +34,7 @@ then copy *mpvsync.lua* and *mpvsync_modules* to the mpv scripts directory:
 ```
 $ cd mpvsync
 $ mkdir -p ~/.config/mpv/scripts
-$ cp -r mpvsync.lua mpvsync_modules ~/.config/mpv/scripts
+$ cp -r mpvsync.lua mpvsync_modules ~/.config/mpv/scripts/
 ```
 
 Alternatively, you can pass the script file to mpv with the *--script* option without installation:
@@ -50,7 +64,7 @@ After the connection is established the server will control the clients' playbac
 
 Configuration
 -------------
-We can configure mpvsync via configure file instead of passing all options with the *--scripts-opts*. To do so we need to make directory *lua-settings* in the mpv config directory:
+We can configure mpvsync via configuration file instead of passing all options with the *--scripts-opts*. To do so we need to create *lua-settings* directory in the mpv config directory:
 ```
 $ mkdir -p ~/.config/mpv/lua-settings
 ```

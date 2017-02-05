@@ -25,7 +25,6 @@ local _opts = {
         help = false,
         enabled = false,
         port = 32923,
-        debug = false,
         osd = true,
         host = "",
         wait = true
@@ -48,7 +47,6 @@ function opts:assert(_opts)
 
     self.enabled      = _opts.enabled
     self.port         = _opts.port
-    self.debug        = _opts.debug
     self.osd          = _opts.osd
     self.host         = _opts.host
     self.wait         = _opts.wait

@@ -16,13 +16,13 @@ along with this program; if not, write to the Free Software
 Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 --]]
 
-local socket = require "socket"
+local posix = require "posix"
+local socket = require "posix.sys.socket"
+local unistd = require "posix.unistd"
 local ut = require "mpvsync_modules/utils"
 
-local debug = false
-
 local pb_state
-local udp
+local sock_fd
 
 local clients = {}
 local client_timeout = 5
@@ -30,25 +30,35 @@ local timeout = 0.5
 
 local function listen(port)
     local err_prefix = "Cannot start server on port " .. port .. ": "
-    local udp, status, err
+    local sock_fd, status, err
 
-    udp, err = socket.udp()
-    if not udp then
+    sock_fd, err = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, 0)
+    if not sock_fd then
         mp.msg.error(err_prefix .. err)
         os.exit(1)
     end
 
-    status, err = udp:setsockname("*", port)
+    status, err = socket.bind(sock_fd, { family = socket.AF_INET, addr = "127.0.0.1", port = port })
     if not status then
         mp.msg.error(err_prefix .. err)
         os.exit(1)
     end
 
-    udp:settimeout(timeout)
-    return udp
+    --udp:settimeout(timeout)
+    return sock_fd
 end
 
-local function wall(reqtype, data, filter)
+local function sendto(datagram_pkd, addr, port)
+    local dest = {
+        family = socket.AF_INET,
+        addr   = addr,
+        port   = port
+    }
+    socket.sendto(sock_fd, datagram_pkd, dest)
+end
+
+local function sendto_all(reqtype, data, filter)
+
     local datagram = {
         reqtype = reqtype,
         reqn = 0,
@@ -57,12 +67,21 @@ local function wall(reqtype, data, filter)
     local datagram_pkd = ut.dg_pack(datagram)
 
     filter = filter or function(id) return true end
-
     for id, cli in pairs(clients) do
         if filter(id) then
-            udp:sendto(datagram_pkd, cli.ip, cli.port)
+            sendto(datagram_pkd, cli.ip, cli.port)
         end
     end
+end
+
+local function wall(msg, filter)
+    local filter = filter or function(id) return true end
+
+    if filter("localhost") then
+        ut.mpvsync_osd(msg)
+    end
+
+    sendto_all("MSG", msg, filter)
 end
 
 local function update_pb_state()
@@ -93,17 +112,18 @@ local function add_client(id, cli)
             local ip, port = id:match("([^,]+):([^,]+)")
             clients[id] = {}
             clients[id].ip = ip
-            clients[id].port = port
+            clients[id].port = tonumber(port)
         end
     end
 
     clients[id].live = true
-    wall("MSG", id .. " connected", function(_id) return _id ~= id end)
+
+    wall(id .. " connected", function(_id) return _id ~= id end)
 end
 
 local function del_client(id)
     clients[id] = nil
-    wall("MSG", id .. " disconnected")
+    wall(id .. " disconnected")
 end
 
 local function check_clients()
@@ -116,18 +136,16 @@ local function check_clients()
     end
 
     for id, cli in pairs(clients) do
-        udp:sendto(datagram_pkd, cli.ip, cli.port)
+        sendto(datagram_pkd, cli.ip, cli.port)
         clients[id].live = false
     end
 end
 
-local function dispatch(datagram_pkd, ip, port)
+local function dispatch(datagram_pkd, src)
     local datagram = ut.dg_unpack(datagram_pkd)
-    local id = ip .. ":" .. port
+    local id = src.addr .. ":" .. src.port
 
-    if opts.debug then
-        mp.msg.info(datagram.reqtype .. " " .. id)
-    end
+    mp.msg.debug(datagram.reqtype .. " " .. id)
 
     if datagram.reqtype == "SYN" then
         local datagram_rep = {
@@ -138,9 +156,8 @@ local function dispatch(datagram_pkd, ip, port)
         update_pb_state()
         if pb_state then
             datagram_rep.data = ut.st_serialize(pb_state)
+            sendto(ut.dg_pack(datagram_rep), src.addr, src.port)
         end
-
-        udp:sendto(ut.dg_pack(datagram_rep), ip, port)
     end
 
     if not is_client(id) then
@@ -154,26 +171,33 @@ local function dispatch(datagram_pkd, ip, port)
     end
 end
 
-function syn_all()
+local function syn_all()
     local datagram = { reqtype = "SYN", reqn = 0 }
     update_pb_state()
     if pb_state then
         for _, cli in pairs(clients) do
             datagram.data = ut.st_serialize(pb_state)
-            udp:sendto(ut.dg_pack(datagram), cli.ip, cli.port)
+            sendto(ut.dg_pack(datagram), cli.ip, cli.port)
         end
     end
 end
 
 local function disconnect()
-    wall("END")
+    sendto_all("END")
+    unistd.close(sock_fd)
 end
 
-local function init_server(_opts)
-    opts  = _opts
-    debug = opts.debug
+local function is_poll_timeout(poll_ret)
+    return poll_ret == 0
+end
 
-    udp = listen(opts.port)
+local function init_server(opts)
+    sock_fd = listen(opts.port)
+    local wakeup_pipe_fd = mp.get_wakeup_pipe()
+    local fds = {
+        [sock_fd]        = { events = { IN = true } },
+        [wakeup_pipe_fd] = { events = { IN = true } }
+    }
 
     -- Add callbaks for events
     mp.register_event("seek", syn_all)
@@ -190,12 +214,36 @@ local function init_server(_opts)
 
     local function event_loop()
         while mp.keep_running do
-            local datagram_pkd, ip, port = udp:receivefrom()
-            if datagram_pkd then
-                dispatch(datagram_pkd, ip, port)
+            local next_timeout = ut.get_next_timeout_ms()
+            local poll_ret = 0
+
+            if next_timeout and next_timeout > 0 then
+                poll_ret = posix.poll(fds, next_timeout)
+            else
+                poll_ret = posix.poll(fds, -1)
             end
 
-            mp.dispatch_events(false)
+
+            if  fds[sock_fd].revents.IN then
+                local datagram_pkd, src = socket.recvfrom(sock_fd, 128)
+
+                if datagram_pkd then
+                    dispatch(datagram_pkd, src)
+                else
+                    -- In case of error there will be the error message instead of the sender's data
+                    local err = src
+                    mp.msg.debug("Error on receive: " .. err)
+                end
+            end
+
+            if fds[wakeup_pipe_fd].revents.IN or is_poll_timeout(poll_ret) then
+                mp.dispatch_events(false)
+
+                if fds[wakeup_pipe_fd].revents.IN then
+                    --flush wakeup_pipe
+                    posix.read(wakeup_pipe_fd, 1)
+                end
+            end
         end
     end
 

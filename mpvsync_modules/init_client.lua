@@ -15,18 +15,21 @@ You should have received a copy of the GNU General Public License
 along with this program; if not, write to the Free Software
 Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 --]]
+local dbg = require "debugger"
 
-local socket = require "socket"
+local posix = require "posix"
+local socket = require "posix.sys.socket"
+local unistd = require "posix.unistd"
 local ut = require "mpvsync_modules/utils"
 local RingBuffer = require "mpvsync_modules/ringbuffer"
 
-local debug = false
-
 local pb_state
-local udp
+local sock_fd
+local sock_dest
 
 local max_pos_error = 0.5
 local min_pos_error = 0.1
+
 
 local stats = {
     reqn = 1,
@@ -38,17 +41,49 @@ local stats = {
 }
 
 local function connect(host, port)
-    udp = socket.udp()
+    local err_prefix = "Cannot connect to " .. host .. ":" .. port .. " "
+    local sock_dest = { family = socket.AF_INET, addr = host, port = port }
+    local sock_fd, status, err, errnum
 
-    local ip, err = socket.dns.toip(host)
-    if not ip then
-        -- For some hosts provided as IPs dns.toip fails
-        local ip = host
-        udp:setpeername(ip, port)
-    else
-        udp:setpeername(ip, port)
+    sock_fd, err = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, 0)
+    if not sock_fd then
+        mp.msg.error(err_prefix .. err)
+        os.exit(1)
     end
-    udp:settimeout(1)
+
+    status, err, errnum = socket.bind(sock_fd,
+        { family = socket.AF_INET, addr = "127.0.0.1", port = 0 })
+
+    if not status then
+        mp.msg.error(err_prefix .. err)
+        os.exit(1)
+    end
+
+    return sock_fd, sock_dest
+end
+
+local function send(datagram_pkd)
+    return socket.sendto(sock_fd, datagram_pkd, sock_dest)
+end
+
+local function send_req(reqtype)
+    local datagram = { reqtype = reqtype }
+
+    if reqtype == "SYN" then
+        datagram.reqn = stats.reqn
+
+        stats.reqn = (stats.reqn + 1) % 10000
+        if stats.reqn == 0 then
+            stats.reqn = 1
+        end
+
+        stats.syn_sent = stats.syn_sent + 1
+        stats.syn_sent_last = mp.get_time()
+    else
+        datagram.reqn = 0
+    end
+
+    send(ut.dg_pack(datagram))
 end
 
 local function update_pb_state()
@@ -107,27 +142,6 @@ local function syn_pb_state(sv_st)
     return true
 end
 
-local function req_send(reqtype)
-    local datagram = {}
-    datagram.reqtype = reqtype
-
-    if reqtype == "SYN" then
-        datagram.reqn = stats.reqn
-
-        stats.reqn = (stats.reqn + 1) % 10000
-        if stats.reqn == 0 then
-            stats.reqn = 1
-        end
-
-        stats.syn_sent = stats.syn_sent + 1
-        stats.syn_sent_last = mp.get_time()
-    else
-        datagram.reqn = 0
-    end
-
-    udp:send(ut.dg_pack(datagram))
-end
-
 local function update_ping(reqn)
     if reqn == 0 then
         return
@@ -151,11 +165,11 @@ local function dispatch(datagram_pkg)
         return true
 
     elseif datagram.reqtype == "LIV" then
-        req_send("LIV")
+        send_req("LIV")
         return true
 
     elseif datagram.reqtype == "MSG" then
-        ut.mpvsync_osd(opts.host .. ": " .. datagram.data)
+        ut.mpvsync_osd("Server" .. ": " .. datagram.data)
         return true
 
     elseif datagram.reqtype == "END" then
@@ -164,36 +178,53 @@ local function dispatch(datagram_pkg)
     end
 end
 
-local function debug_info()
-    mp.msg.info("ping: avg " .. stats.ping_avg ..
-                    " sent " .. stats.syn_sent ..
-                    " lost " .. stats.syn_lost)
-end
-
-function syn()
-    req_send("SYN")
-    local datagram_pkg = udp:receive()
-    if datagram_pkg and ut.dg_type(datagram_pkg) == "SYN" then
-        return dispatch(datagram_pkg)
+local function receive()
+    local datagram_pkg, err = socket.recv(sock_fd, 128)
+    if datagram_pkg then
+        mp.msg.debug(datagram_pkg)
+        dispatch(datagram_pkg)
+        return true
     else
-        return false
+        return nil, err
     end
 end
 
-local function disconnect()
-    req_send("END")
+---[[
+local function debug_info()
+    mp.msg.debug("ping: avg " .. stats.ping_avg ..
+                    " sent " .. stats.syn_sent ..
+                    " lost " .. stats.syn_lost)
+end
+--]]
+
+local function syn()
+    send_req("SYN")
 end
 
-local function init_client(_opts)
-    opts  = _opts
-    debug = opts.debug
+local function disconnect()
+    send_req("END")
+    unistd.close(sock_fd)
+end
 
-    connect(opts.host, opts.port)
+local function is_poll_timeout(poll_ret)
+    return poll_ret == 0
+end
 
+
+local function init_client(opts)
+    sock_fd, sock_dest = connect(opts.host, opts.port)
+    local wakeup_pipe_fd = mp.get_wakeup_pipe()
+    local fds = {
+        [sock_fd]        = { events = { IN = true } },
+        [wakeup_pipe_fd] = { events = { IN = true } }
+    }
+
+    --mp.register_event("file-loaded", syn)
     mp.register_event("seek", syn)
     mp.register_event("end-file", disconnect)
-    mp.observe_property("pause", "bool", syn)
-    mp.add_periodic_timer(10, syn)
+    --mp.observe_property("pause", "bool", syn)
+
+    mp.add_periodic_timer(5, syn)
 
     -- Connect on load
     if opts.wait then
@@ -202,20 +233,34 @@ local function init_client(_opts)
     ut.mpvsync_osd("Connecting to " .. opts.host)
 
     local function event_loop()
+        mp.dispatch_events(false)
+
         while mp.keep_running do
-            mp.dispatch_events(false)
+            local next_timeout = ut.get_next_timeout_ms()
+            local poll_ret = 0
 
-            local datagram_pkg = udp:receive()
-            if datagram_pkg then
-                if opts.debug then
-                    mp.msg.info(datagram_pkg)
+            if next_timeout then
+                if next_timeout > 0 then
+                    poll_ret = posix.poll(fds, next_timeout)
                 end
-
-                dispatch(datagram_pkg)
+            else
+                poll_ret = posix.poll(fds, -1)
             end
 
-            if opts.debug then
-                debug_info()
+            if fds[sock_fd].revents.IN then
+                local status, err = receive()
+                if not status then
+                    mp.msg.debug("Error on receive: " .. err)
+                end
+            end
+
+            if fds[wakeup_pipe_fd].revents.IN or is_poll_timeout(poll_ret) then
+                mp.dispatch_events(false)
+
+                if fds[wakeup_pipe_fd].revents.IN then
+                    --flush wakeup_pipe
+                    posix.read(wakeup_pipe_fd, 1)
+                end
             end
         end
     end
