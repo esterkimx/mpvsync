@@ -86,15 +86,6 @@ function utils.mpvsync_osd(msg)
     mp.osd_message("mpvsync: " .. msg, 3)
 end
 
--- Get next timer timeout in milliseconds
-function utils.get_next_timeout_ms()
-    local next_timeout = mp.get_next_timeout()
-    if next_timeout then
-        next_timeout = 1000 * next_timeout
-    end
-    return next_timeout
-end
-
 -- Posix poll wrap
 -- If timeout < 0 returns 0
 -- If timeout == nil blocks indefinitely
