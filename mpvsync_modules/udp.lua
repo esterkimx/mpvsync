@@ -55,7 +55,13 @@ function udp:listen(port)
 end
 
 function udp:connect(host, port)
-    self.dest = { family = socket.AF_INET, addr = host, port = port }
+    local host_info = socket.getaddrinfo(host, nil, { family = socket.AF_INET })
+    if not host_info then
+        mp.msg.error("Invalid host")
+        os.exit(1)
+    end
+
+    self.dest = { family = socket.AF_INET, addr = host_info[1].addr, port = port }
     udp:listen(0)
 end
 
