@@ -106,8 +106,6 @@ function Client:get_event_loop()
         end
         ut.mpvsync_osd("Connecting to " .. self.opts.host)
 
-        local i = 0
-
         while mp.keep_running do
             local next_timeout = self.timers:get_next_timeout_ms()
             local poll_ret = ut.poll(self.fds, next_timeout)
