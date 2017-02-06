@@ -38,7 +38,7 @@ function utils.dg_assert(datagram)
            return nil, utils.err.DG_INVALID_REQTYPE
     end
 
-    if (type(datagram.reqn) ~= "number") or (datagram.reqn < 0) or (datagram.reqn > 9999) then
+    if (type(datagram.reqn) ~= "number") or (datagram.reqn < 0) or (datagram.reqn > 0xFFFF) then
         return nil, utils.err.DG_INVALID_REQN
     end
 
@@ -54,7 +54,7 @@ function utils.dg_pack(datagram)
 
     datagram, err = utils.dg_assert(datagram)
     if datagram then
-        return datagram.reqtype .. string.format("%04d", datagram.reqn) .. (datagram.data or "")
+        return datagram.reqtype .. string.format("%04X", datagram.reqn) .. (datagram.data or "")
     end
 
     if err == utils.err.DG_INVALID_REQTYPE then
@@ -71,7 +71,7 @@ end
 function utils.dg_unpack(datagram_pkd)
     local datagram = {}
     datagram.reqtype = datagram_pkd:sub(1, 3)
-    datagram.reqn = tonumber(datagram_pkd:sub(4, 7))
+    datagram.reqn = tonumber("0x" ..  datagram_pkd:sub(4, 7))
     datagram.data = datagram_pkd:sub(8)
     return utils.dg_assert(datagram)
 end

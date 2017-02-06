@@ -1,6 +1,6 @@
 mpvsync
 ------------
-**mpvsync** is a simple playback network synchronization plugin for **mpv**. You can play the same file synchronously with different instances of mpv running on different machines. It will not copy the file itself, so you'll need to obtain a local copy of the file on every device before usage.
+**mpvsync** is a plugin for **mpv** for a playback synchronization over the network. You can play the same file synchronously with different instances of mpv running on different machines. It will not copy the file itself, so you'll need to obtain a local copy of the file on every device before usage.
 
 Prerequisites
 -------------

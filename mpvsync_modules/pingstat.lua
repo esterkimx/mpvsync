@@ -42,14 +42,9 @@ function PingStat:new()
 end
 
 function PingStat:inc()
-    self.syn_sent = self.syn_sent + 1
     self.syn_sent_last = mp.get_time()
-
-    self.reqn = (self.reqn + 1) % 10000
-
-    if self.reqn == 0 then
-        self.reqn = 1
-    end
+    self.syn_sent = self.syn_sent + 1
+    self.reqn = self.reqn % 0xFFFF + 1
 end
 
 function PingStat:update(reqn)
@@ -62,17 +57,13 @@ function PingStat:update(reqn)
         return
     end
 
-    if reqn == self.reqn - 1 then
+    if (reqn % 0xFFFF) == (self.reqn - 1) then
         local ping = mp.get_time() - self.syn_sent_last
         self.ping_buff:insert(ping)
         self.ping_avg = self.ping_buff:average()
+        self.syn_lost = self.syn_lost + (reqn - self.last_succ_reqn) % 0xFFFF - 1
         self.last_succ_reqn = reqn
-    elseif reqn > self.last_succ_reqn - 1 then
-        self.syn_lost = self.syn_lost + (reqn - self.last_succ_reqn) % 10000
-    else
-        return
     end
-
 end
 
 return PingStat
