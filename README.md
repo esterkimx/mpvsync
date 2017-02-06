@@ -80,7 +80,7 @@ We can make mpvsync disabled-by-default via the config file:
 enabled=no
 ```
 
-See example config file for futher information. **Be aware of trailing spaces** -- mpv will throw `error converting value` error if you put
+See example config file for futher information. **Be aware of trailing spaces** -- mpv will throw `error converting value` if you put
 
 ```
 #Bad
