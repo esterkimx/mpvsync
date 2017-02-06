@@ -21,7 +21,7 @@ Note that we used *--local* option, so luarocks installed package into *~/.luaro
 ```
 $ luarocks-5.2 path
 ```
-It will write values for *$LUA_PATH* and *$LUA_CPATH* to stdout. Just copy it to your shell configuration file (i.e. *~/.bashrc* or *~/.zshrc*)
+It will write values for *$LUA_PATH* and *$LUA_CPATH* to stdout. Just copy it to your shell configuration file.
 
 Installation
 ------------
@@ -30,34 +30,34 @@ Clone this repository
 $ git clone https://github.com/esterkimx/mpvsync.git
 ```
 
-then copy *mpvsync.lua* and *mpvsync_modules* to the mpv scripts directory:
+then copy *mpvsync.lua* and *mpvsync_modules* to the mpv *scripts* directory:
 ```
 $ cd mpvsync
 $ mkdir -p ~/.config/mpv/scripts
 $ cp -r mpvsync.lua mpvsync_modules ~/.config/mpv/scripts/
 ```
 
-Alternatively, you can pass the script file to mpv with the *--script* option without installation:
+Alternatively, you can pass the script file to mpv with the *--script*:
 ```
-$ mpv --script mpvsync.lua
+$ mpv --script mpvsync.lua <input-file>
 ```
 
 Usage
 -----
 You'll need run one mpv instance as the server and others as the clients. By default mpvsync will listen to port *32923*. Try
 ```
-$ mpv --script-opts=mpvsync-enabled=yes <input-file>
+$ mpv <input-file>
 ```
 
 After loading the file it should be paused and showing `"Waiting for clients"` on-screen message.
 You can specify port with the *mpvsync-port* option (note that to pass options to scripts mpv uses the *--script-opts* key):
 ```
-$ mpv --script-opts=mpvsync-enabled=yes,mpvsync-port=58785 <input-file>
+$ mpv --script-opts=mpvsync-port=58785 <input-file>
 ```
 
 If you pass *mpvsync-host* option to mpv, it'll run in the client mode. E.g.
 ```
-$ mpv --script-opts=mpvsync-enabled=yes,mpvsync-host=localhost <input-file>
+$ mpv --script-opts=mpvsync-host=localhost <input-file>
 ```
 
 After the connection is established the server will control the clients' playbacks.
@@ -74,29 +74,29 @@ Now we can put config file there:
 $ $EDITOR ~/.config/mpv/lua-settings/mpvsync.conf
 ```
 
-Mpvsync disabled by default and we need to pass the *mpvsync-enabled=yes* option to use it. We can make it enabled-by-default via the config file:
+We can make mpvsync disabled-by-default via the config file:
 ```
 #Example mpvsync configuration file
-enabled=yes
+enabled=no
 ```
 
 Additionally, we can turn-off pause in the beginning of the playback:
 ```
 #Example mpvsync configuration file
-enabled=yes
+enabled=no
 wait=no
 ```
 
 Examples
 --------
-Start the mpvsync server listening the port *3535* without mpvsync installation
+Start the mpvsync server listening the port *3535*
 ```
-$ mpv --script mpvsync.lua --script-opt=mpvsync-port=3535
+$ mpv --script-opt=mpvsync-port=3535 <input-file>
 ```
 
 Start the mpvsync client connected to *example.com:8998*, without OSD notifications
 ```
-$ mpv --script-opt=mpvsync-host=example.com,mpvsync-port=8998,mpvsync-osd=no
+$ mpv --script-opt=mpvsync-host=example.com,mpvsync-port=8998,mpvsync-osd=no <input-file>
 ```
 
 To list options available:

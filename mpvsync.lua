@@ -23,7 +23,7 @@ local client = require "mpvsync_modules/client"
 -- Default options
 local _opts = {
         help = false,
-        enabled = false,
+        enabled = true,
         port = 32923,
         osd = true,
         host = "",

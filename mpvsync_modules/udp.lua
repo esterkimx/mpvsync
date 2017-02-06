@@ -15,6 +15,7 @@ You should have received a copy of the GNU General Public License
 along with this program; if not, write to the Free Software
 Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 --]]
+
 local posix = require "posix"
 local socket = require "posix.sys.socket"
 local unistd = require "posix.unistd"
@@ -76,7 +77,7 @@ function udp:receive()
     if not data then
         return nil, src
     end
-    
+
     if self.dest then
         if self.dest.addr ~= src.addr or self.dest.port ~= src.port then
             return nil, "dest doesent match source of datagram"
