@@ -101,5 +101,5 @@ $ mpv --script-opt=mpvsync-host=example.com,mpvsync-port=8998,mpvsync-osd=no <in
 
 To list options available:
 ```
-$ mpv --script mpvsync.lua --script-opts=mpvsync-help=yes -
+$ mpv --script-opts=mpvsync-help=yes -
 ```
