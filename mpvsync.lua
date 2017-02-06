@@ -72,7 +72,7 @@ if opts.enabled then
         event_loop = cli:get_event_loop()
     else
         local srv = server:new(opts)
-        event_loop = srv:get_event_loop(opts)
+        event_loop = srv:get_event_loop()
     end
 
     if event_loop then
