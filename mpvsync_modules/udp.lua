@@ -15,6 +15,7 @@ You should have received a copy of the GNU General Public License
 along with this program; if not, write to the Free Software
 Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 --]]
+local posix = require "posix"
 local socket = require "posix.sys.socket"
 local unistd = require "posix.unistd"
 
@@ -34,7 +35,7 @@ function udp:listen(port)
 
     self.fd, err = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, 0)
     if not self.fd then
-        mp.msg.error("Failed to start server on port " .. port .. ": " .. err)
+        mp.msg.error("Failed to open socket: " .. err)
         os.exit(1)
     end
 
@@ -44,29 +45,24 @@ function udp:listen(port)
         mp.msg.error("Failed to bind socket: "  .. err)
         os.exit(1)
     end
+
+    status, err = socket.setsockopt(self.fd,
+        socket.SOL_SOCKET, socket.SO_SNDTIMEO, 1, 0)
+    if not status then
+        mp.msg.error(err)
+        os.exit(1)
+    end
 end
 
 function udp:connect(host, port)
-    local status, err
     self.dest = { family = socket.AF_INET, addr = host, port = port }
-
-    self.fd, err = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, 0)
-    if not self.fd then
-        mp.msg.error("Failed to connect to " .. host .. ":" .. port .. ": " .. err)
-        os.exit(1)
-    end
-
-    status, err = socket.bind(self.fd,
-        { family = socket.AF_INET, addr = "127.0.0.1", port = 0 })
-    if not status then
-        mp.msg.error("Failed to bind socket: " .. err)
-        os.exit(1)
-    end
+    udp:listen(0)
 end
 
 function udp:send(datagram_pkd, dest)
     dest = dest or self.dest
     socket.sendto(self.fd, datagram_pkd, dest)
+    print(datagram_pkd)
 end
 
 function udp:receive()

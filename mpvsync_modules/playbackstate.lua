@@ -58,10 +58,12 @@ function PlayBackState:deserialize(pb_state_srl)
         pb_state.pos   = tonumber(s_pos)
         pb_state.speed = tonumber(s_speed)
         pb_state.pause = tonumber(s_pause)
-        return pb_state
-    else
-        return nil
+        if pb_state.pos and pb_state.speed and pb_state.pause then
+            return pb_state
+        end
     end
+
+    return nil
 end
 
 function PlayBackState:syn(sv_st, ping_avg)

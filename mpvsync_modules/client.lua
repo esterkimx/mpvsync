@@ -20,6 +20,7 @@ local dbg = require "debugger"
 local posix = require "posix"
 local udp = require "mpvsync_modules/udp"
 local ut = require "mpvsync_modules/utils"
+local Timers = require "mpvsync_modules/timers"
 local PlayBackState = require "mpvsync_modules/playbackstate"
 local PingStat = require "mpvsync_modules/pingstat"
 
@@ -39,11 +40,21 @@ function Client:send_req(reqtype)
 end
 
 function Client:dispatch(datagram_pkd)
-    local datagram = ut.dg_unpack(datagram_pkd)
+    local datagram, err = ut.dg_unpack(datagram_pkd)
+
+    if not datagram then
+        mp.msg.debug(err)
+        return
+    end
 
     if datagram.reqtype == "SYN" then
         self.pstat:update(datagram.reqn)
-        self.pb_state:syn(PlayBackState:deserialize(datagram.data), self.pstat.ping_avg)
+        local srv_pb_st = PlayBackState:deserialize(datagram.data)
+        if srv_pb_st then
+            self.pb_state:syn(srv_pb_st, self.pstat.ping_avg)
+        else
+            mp.msg.debug("SYN" .. datagram.reqn .. " corrupted data:" .. datagram.data)
+        end
         return true
 
     elseif datagram.reqtype == "LIV" then
@@ -58,6 +69,8 @@ function Client:dispatch(datagram_pkd)
         ut.mpvsync_osd("Server stopped")
         return true
     end
+
+    return false
 end
 
 ---[[
@@ -75,31 +88,26 @@ function Client:get_event_loop()
         local i = 0
 
         while mp.keep_running do
-            local next_timeout = ut.get_next_timeout_ms()
-            i = i + 1
-            print(i .." POLL " .. next_timeout)
+            local next_timeout = self.timers:get_next_timeout_ms()
             local poll_ret = ut.poll(self.fds, next_timeout)
-            print("ret ".. poll_ret)
 
+            if ut.is_poll_event(poll_ret) then
+                for fd in pairs(self.fds) do
+                    if self.fds[fd].revents.IN then
+                        self.fd_event_cb[fd].IN(fd)
+                    end
 
-            for fd in pairs(self.fds) do
-                if self.fds[fd].revents.IN then
-                    self.fd_event_cb[fd].IN(fd)
-                end
+                    if self.fds[fd].revents.HUP then
+                        self.fd_event_cb[fd].HUP(fd)
+                        self.fds[fd] = nil
 
-                if self.fds[fd].revents.HUP then
-                    self.fd_event_cb[fd].HUP(fd)
-                    self.fds[fd] = nil
-
-                    if not next(self.fds) then
-                        return
+                        if not next(self.fds) then
+                            return
+                        end
                     end
                 end
-            end
-
-            if ut.is_poll_timeout(poll_ret) then
-                dbg()
-                mp.dispatch_events(false)
+            elseif ut.is_poll_timeout(poll_ret) then
+                self.timers:process()
             end
         end
     end
@@ -117,7 +125,9 @@ function Client:bind_callbacks(cb)
     mp.register_event("seek", cb.syn)
     mp.register_event("end-file", cb.disconnect)
     mp.observe_property("pause", "bool", cb.syn)
-    mp.add_periodic_timer(0.5, cb.syn)
+
+    self.timers:add(5, cb.syn)
+    --self.timers:add(2, cb.debug_info)
 end
 
 function Client:new(opts)
@@ -126,7 +136,8 @@ function Client:new(opts)
         wakeup_pipe_fd = mp.get_wakeup_pipe(),
         pb_state = PlayBackState:new(),
         pstat = PingStat:new(),
-        socket = udp:new()
+        socket = udp:new(),
+        timers = Timers:new()
     }
     cli.socket:connect(opts.host, opts.port)
     cli.fds = {
@@ -161,6 +172,9 @@ function Client:new(opts)
         end,
         disconnect = function()
             cli:send_req("END")
+        end,
+        debug_info = function()
+            cli:debug_info()
         end
     }
     cli:bind_callbacks(cb)
