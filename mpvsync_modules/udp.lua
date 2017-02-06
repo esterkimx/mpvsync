@@ -68,7 +68,6 @@ end
 function udp:send(datagram_pkd, dest)
     dest = dest or self.dest
     socket.sendto(self.fd, datagram_pkd, dest)
-    print(datagram_pkd)
 end
 
 function udp:receive()
@@ -77,7 +76,7 @@ function udp:receive()
     if not data then
         return nil, src
     end
-
+    
     if self.dest then
         if self.dest.addr ~= src.addr or self.dest.port ~= src.port then
             return nil, "dest doesent match source of datagram"

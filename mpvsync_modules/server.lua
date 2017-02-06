@@ -18,6 +18,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 local dbg = require "debugger"
 
 local posix = require "posix"
+local time = require "posix.time"
 local udp = require "mpvsync_modules/udp"
 local ut = require "mpvsync_modules/utils"
 local Timers = require "mpvsync_modules/timers"
@@ -171,7 +172,7 @@ function Server:bind_callbacks(cb)
                                   HUP = cb.wakeup_pipe_HUP }
     }
 
-    mp.register_event("seek", cb.syn_all)
+    mp.register_event("seek", cb.seek_syn_all)
     mp.register_event("end-file", cb.disconnect)
     mp.observe_property("pause", "bool", cb.syn_all)
     mp.observe_property("speed", "number", cb.syn_all)
@@ -217,6 +218,10 @@ function Server:new(opts)
             os.exit(0)
         end,
         syn_all = function()
+            srv:syn_all()
+        end,
+        seek_syn_all = function()
+            time.nanosleep{ tv_sec = 0, tv_nsec = 1e8 } -- give some time to mpv to seek
             srv:syn_all()
         end,
         disconnect = function()

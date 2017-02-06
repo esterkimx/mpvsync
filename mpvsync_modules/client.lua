@@ -15,7 +15,14 @@ You should have received a copy of the GNU General Public License
 along with this program; if not, write to the Free Software
 Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 --]]
-local dbg = require "debugger"
+
+--[[
+function Client:debug_info()
+    mp.msg.debug(self.pstat)
+end
+--]]
+
+--local dbg = require "debugger"
 
 local posix = require "posix"
 local udp = require "mpvsync_modules/udp"
@@ -73,11 +80,7 @@ function Client:dispatch(datagram_pkd)
     return false
 end
 
----[[
-function Client:debug_info()
-    mp.msg.debug(self.pstat)
-end
---]]
+
 function Client:get_event_loop()
     return function()
         if self.opts.wait then
@@ -127,7 +130,6 @@ function Client:bind_callbacks(cb)
     mp.observe_property("pause", "bool", cb.syn)
 
     self.timers:add(5, cb.syn)
-    --self.timers:add(2, cb.debug_info)
 end
 
 function Client:new(opts)
