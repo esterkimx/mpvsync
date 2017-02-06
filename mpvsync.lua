@@ -27,7 +27,8 @@ local _opts = {
         port = 32923,
         osd = true,
         host = "",
-        wait = true
+        wait = true,
+        ipv6 = true
 }
 
 -- Assert options before use it

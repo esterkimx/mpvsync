@@ -80,11 +80,16 @@ We can make mpvsync disabled-by-default via the config file:
 enabled=no
 ```
 
-Additionally, we can turn-off pause in the beginning of the playback:
+See example config file for futher information. **Be aware of trailing spaces** -- mpv will throw `error converting value` error if you put
+
 ```
-#Example mpvsync configuration file
-enabled=no
-wait=no
+#Bad
+enable=no␣
+```
+
+istead of
+```
+enable=no
 ```
 
 Examples

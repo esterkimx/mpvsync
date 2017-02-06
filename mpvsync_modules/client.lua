@@ -73,7 +73,7 @@ function Client:dispatch(datagram_pkd)
         return true
 
     elseif datagram.reqtype == "END" then
-        ut.mpvsync_osd("Server stopped")
+        ut.mpvsync_osd("Connection to the server has ended ")
         return true
     end
 

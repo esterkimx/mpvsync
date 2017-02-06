@@ -21,7 +21,8 @@ local socket = require "posix.sys.socket"
 local unistd = require "posix.unistd"
 
 local udp = {
-    max_dg_size = 128
+    max_dg_size = 128,
+    ipv6 = true
 }
 
 function udp:new()
@@ -34,17 +35,32 @@ end
 function udp:listen(port)
     local status, err
 
-    self.fd, err = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, 0)
-    if not self.fd then
-        mp.msg.error("Failed to open socket: " .. err)
-        os.exit(1)
-    end
+    if self.ipv6 then
+        self.fd, err = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM, 0)
+        if not self.fd then
+            mp.msg.error("Failed to open socket: " .. err)
+            os.exit(1)
+        end
 
-    status, err = socket.bind(self.fd,
-        { family = socket.AF_INET, addr = "127.0.0.1", port = port })
-    if not status then
-        mp.msg.error("Failed to bind socket: "  .. err)
-        os.exit(1)
+        status, err = socket.bind(self.fd,
+            { family = socket.AF_INET6, addr = "::", port = port })
+        if not status then
+            mp.msg.error("Failed to bind socket: "  .. err)
+            os.exit(1)
+        end
+    else
+        self.fd, err = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, 0)
+        if not self.fd then
+            mp.msg.error("Failed to open socket: " .. err)
+            os.exit(1)
+        end
+
+        status, err = socket.bind(self.fd,
+            { family = socket.AF_INET, addr = "127.0.0.1", port = port })
+        if not status then
+            mp.msg.error("Failed to bind socket: "  .. err)
+            os.exit(1)
+        end
     end
 
     status, err = socket.setsockopt(self.fd,
@@ -56,13 +72,25 @@ function udp:listen(port)
 end
 
 function udp:connect(host, port)
-    local host_info = socket.getaddrinfo(host, nil, { family = socket.AF_INET })
-    if not host_info then
-        mp.msg.error("Invalid host")
-        os.exit(1)
-    end
+    if self.ipv6 then
+        local host_info = socket.getaddrinfo(host, nil, { family = socket.UNSPEC })
 
-    self.dest = { family = socket.AF_INET, addr = host_info[1].addr, port = port }
+        if not host_info then
+            mp.msg.error("Invalid host")
+            os.exit(1)
+        end
+
+        self.dest = { family = host_info[1].family, addr = host_info[1].addr, port = port }
+    else
+        local host_info = socket.getaddrinfo(host, nil, { family = socket.AF_INET })
+
+        if not host_info then
+            mp.msg.error("Invalid host")
+            os.exit(1)
+        end
+
+        self.dest = { family = socket.AF_INET, addr = host_info[1].addr, port = port }
+    end
     udp:listen(0)
 end
 
@@ -76,12 +104,6 @@ function udp:receive()
 
     if not data then
         return nil, src
-    end
-
-    if self.dest then
-        if self.dest.addr ~= src.addr or self.dest.port ~= src.port then
-            return nil, "dest doesent match source of datagram"
-        end
     end
 
     return data, src
