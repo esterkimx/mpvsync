@@ -9,7 +9,7 @@ The plugin uses *luaposix* library for Lua version 5.2. On many popular Linux di
 # apt-get install lua-posix
 ```
 
-As another option you can use the **luarocks** package manager to install necessary lua libraries. E.g. on Archlinux there is no *luaposix* package for Lua 5.2, so let's install it using luarocks instead. First of all install luarocks itself for Lua 5.2:
+As another option you can use the **luarocks** package manager to install necessary Lua libraries. E.g. on Archlinux there is no *luaposix* package for Lua 5.2, so let's install it using luarocks instead. First of all install luarocks itself for Lua 5.2:
 ```
 # pacman -Syu luarocks-5.2
 ```
@@ -17,11 +17,11 @@ then install librariy:
 ```
 $ luarocks-5.2 install luaposix --local
 ```
-Note that we used *--local* option, so luarocks installed packages into *~/.luarocks/* directory instead of the system-wide installation. So now we need to add this directory to *$LUA_PATH* and *$LUA_CPATH* environment variables. We can do it easily with luarocks, run
+Note that we used *--local* option, so luarocks installed package into *~/.luarocks/* directory instead of the system-wide installation. Now we need to add this directory to *$LUA_PATH* and *$LUA_CPATH* environment variables. This can be done easily with luarocks:
 ```
 $ luarocks-5.2 path
 ```
-It will write to stdout export values for *$LUA_PATH* and *$LUA_CPATH*. Just copy it to your shell's configuration file (i.e. *~/.bashrc* or *~/.zshrc*)
+It will write values for *$LUA_PATH* and *$LUA_CPATH* to stdout. Just copy it to your shell configuration file (i.e. *~/.bashrc* or *~/.zshrc*)
 
 Installation
 ------------
@@ -44,7 +44,7 @@ $ mpv --script mpvsync.lua
 
 Usage
 -----
-You need one mpv instance running as the server and others as the clients. By default mpvsync will listen to the port *32923*. Try
+You'll need run one mpv instance as the server and others as the clients. By default mpvsync will listen to port *32923*. Try
 ```
 $ mpv --script-opts=mpvsync-enabled=yes <input-file>
 ```
@@ -74,7 +74,7 @@ Now we can put config file there:
 $ $EDITOR ~/.config/mpv/lua-settings/mpvsync.conf
 ```
 
-mpvsync disabled by default and we need to pass the *mpvsync-enabled=yes* option to use it. We can make it enabled-by-default via the config file:
+Mpvsync disabled by default and we need to pass the *mpvsync-enabled=yes* option to use it. We can make it enabled-by-default via the config file:
 ```
 #Example mpvsync configuration file
 enabled=yes
