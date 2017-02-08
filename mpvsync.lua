@@ -28,7 +28,9 @@ local _opts = {
         osd = true,
         host = "",
         wait = true,
-        ipv6 = true
+        ipv6 = true,
+        srv_client_timeout = 8,
+        cli_syn_period = 5
 }
 
 -- Assert options before use it
@@ -46,12 +48,14 @@ function opts:assert(_opts)
         os.exit(1)
     end
 
-    self.enabled = _opts.enabled
-    self.port    = _opts.port
-    self.osd     = _opts.osd
-    self.host    = _opts.host
-    self.wait    = _opts.wait
-    self.help    = _opts.help
+    self.enabled            = _opts.enabled
+    self.port               = _opts.port
+    self.osd                = _opts.osd
+    self.host               = _opts.host
+    self.wait               = _opts.wait
+    self.help               = _opts.help
+    self.srv_client_timeout = _opts.srv_client_timeout
+    self.cli_syn_period     = _opts.cli_syn_period
 end
 
 options.read_options(_opts, "mpvsync")

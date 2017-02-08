@@ -96,7 +96,7 @@ function Client:bind_callbacks(cb)
     mp.register_event("end-file", cb.disconnect)
     mp.observe_property("pause", "bool", cb.syn)
 
-    self.timers:add(5, cb.syn)
+    self.timers:add(self.opts.cli_syn_period, cb.syn)
 end
 
 function Client:get_event_loop()

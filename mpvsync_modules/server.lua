@@ -24,9 +24,7 @@ local ut = require "mpvsync_modules/utils"
 local Timers = require "mpvsync_modules/timers"
 local PlayBackState = require "mpvsync_modules/playbackstate"
 
-Server = {
-    client_timeout = 5
-}
+local Server = {}
 
 function Server:new(opts)
     local srv =  {
@@ -99,7 +97,7 @@ function Server:bind_callbacks(cb)
     mp.observe_property("pause", "bool", cb.syn_all)
     mp.observe_property("speed", "number", cb.syn_all)
 
-    self.timers:add(self.client_timeout, cb.check_clients)
+    self.timers:add(self.opts.srv_client_timeout, cb.check_clients)
 end
 
 function Server:get_event_loop()
