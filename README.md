@@ -49,7 +49,7 @@ You'll need to run one mpv instance as the server and others as clients. By defa
 $ mpv <input-file>
 ```
 
-The file should be paused and showing `"Waiting for clients"` on-screen message.
+The file should be paused and mpv should be displaying `"Waiting for clients"` on-screen message.
 You can specify port with the *mpvsync-port* option (note that we use *--script-opts* to pass options to plugins):
 ```
 $ mpv --script-opts=mpvsync-port=58785 <input-file>
@@ -87,7 +87,7 @@ See example config file `mpvsync.conf` for futher information. **Be aware of tra
 enable=no␣
 ```
 
-istead of
+instead of
 ```
 enable=no
 ```
