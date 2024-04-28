@@ -85,7 +85,7 @@ $ cp -r main.lua mpvsync_modules ~/.config/mpv/scripts/mpvsync
 Alternatively, use the *--script* option:
 
 ```
-$ mpv --script main.lua <input-file>
+$ mpv --script mpvsync  <input-file>
 ```
 
 ## Usage
