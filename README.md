@@ -67,7 +67,7 @@ Clone the repository:
 $ git clone https://github.com/esterkimx/mpvsync.git
 ```
 
-Link the repository to the mpv scripts directory:
+Link the repository from the mpv scripts directory:
 
 ```
 $ mkdir -p ~/.config/mpv/scripts
